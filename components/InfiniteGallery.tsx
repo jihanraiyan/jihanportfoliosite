@@ -6,7 +6,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 
-type ImageItem = string | { src: string; alt?: string };
+type ImageItem = string | { src: string; alt?: string; id?: string };
 
 interface FadeSettings {
 	/** Fade in range as percentage of depth range (0-1) */
@@ -54,6 +54,10 @@ interface InfiniteGalleryProps {
 	className?: string;
 	/** Optional style for outer container */
 	style?: React.CSSProperties;
+	/** Optional callback when an image is clicked */
+	onImageClick?: (id: string) => void;
+	/** Optional callback when an image is hovered */
+	onImageHover?: (id: string | null, position?: { x: number; y: number }) => void;
 }
 
 interface PlaneData {
@@ -169,11 +173,17 @@ function ImagePlane({
 	position,
 	scale,
 	material,
+	onClick,
+	onHover,
+	onHoverEnd,
 }: {
 	texture: THREE.Texture;
 	position: [number, number, number];
 	scale: [number, number, number];
 	material: THREE.ShaderMaterial;
+	onClick?: () => void;
+	onHover?: (event: any) => void;
+	onHoverEnd?: () => void;
 }) {
 	const meshRef = useRef<THREE.Mesh>(null);
 	const [isHovered, setIsHovered] = useState(false);
@@ -196,8 +206,16 @@ function ImagePlane({
 			position={position}
 			scale={scale}
 			material={material}
-			onPointerEnter={() => setIsHovered(true)}
-			onPointerLeave={() => setIsHovered(false)}
+			onPointerEnter={(e) => {
+				setIsHovered(true);
+				if (onHover) onHover(e);
+			}}
+			onPointerLeave={() => {
+				setIsHovered(false);
+				if (onHoverEnd) onHoverEnd();
+			}}
+			onClick={onClick}
+			style={{ cursor: onClick ? 'pointer' : 'default' } as any}
 		>
 			<planeGeometry args={[1, 1, 32, 32]} />
 		</mesh>
@@ -217,6 +235,8 @@ function GalleryScene({
 		blurOut: { start: 0.9, end: 1.0 },
 		maxBlur: 3.0,
 	},
+	onImageClick,
+	onImageHover,
 }: Omit<InfiniteGalleryProps, 'className' | 'style'>) {
 	const [scrollVelocity, setScrollVelocity] = useState(0);
 	const [autoPlay, setAutoPlay] = useState(true);
@@ -268,28 +288,41 @@ function GalleryScene({
 	const totalImages = normalizedImages.length;
 	const depthRange = DEFAULT_DEPTH_RANGE;
 
-	// Initialize plane data
+	// Initialize plane data - ensure sequential order from front to back
 	const planesData = useRef<PlaneData[]>(
-		Array.from({ length: visibleCount }, (_, i) => ({
-			index: i,
-			z: visibleCount > 0 ? ((depthRange / visibleCount) * i) % depthRange : 0,
-			imageIndex: totalImages > 0 ? i % totalImages : 0,
-			x: spatialPositions[i]?.x ?? 0, // Use spatial positions for x
-			y: spatialPositions[i]?.y ?? 0, // Use spatial positions for y
-		}))
+		Array.from({ length: visibleCount }, (_, i) => {
+			// Calculate sequential image index to maintain chronological order
+			const imageIndex = totalImages > 0 ? i % totalImages : 0;
+			// Calculate z position: higher z = closer to camera (front) due to worldZ = z - depthRange/2
+			// We want imageIndex 0 (profile) to have the highest z value to appear first
+			const zSpacing = visibleCount > 0 ? depthRange / visibleCount : 0;
+			// Reverse the order: start from high z and go down
+			const z = depthRange - (zSpacing * i);
+			return {
+				index: i,
+				z: z,
+				imageIndex: imageIndex,
+				x: spatialPositions[i]?.x ?? 0, // Use spatial positions for x
+				y: spatialPositions[i]?.y ?? 0, // Use spatial positions for y
+			};
+		})
 	);
 
 	useEffect(() => {
-		planesData.current = Array.from({ length: visibleCount }, (_, i) => ({
-			index: i,
-			z:
-				visibleCount > 0
-					? ((depthRange / Math.max(visibleCount, 1)) * i) % depthRange
-					: 0,
-			imageIndex: totalImages > 0 ? i % totalImages : 0,
-			x: spatialPositions[i]?.x ?? 0,
-			y: spatialPositions[i]?.y ?? 0,
-		}));
+		planesData.current = Array.from({ length: visibleCount }, (_, i) => {
+			// Maintain sequential order when reinitializing
+			const imageIndex = totalImages > 0 ? i % totalImages : 0;
+			const zSpacing = visibleCount > 0 ? depthRange / Math.max(visibleCount, 1) : 0;
+			// Reverse the order: start from high z and go down
+			const z = depthRange - (zSpacing * i);
+			return {
+				index: i,
+				z: z,
+				imageIndex: imageIndex,
+				x: spatialPositions[i]?.x ?? 0,
+				y: spatialPositions[i]?.y ?? 0,
+			};
+		});
 	}, [depthRange, spatialPositions, totalImages, visibleCount]);
 
 	// Handle scroll input
@@ -479,24 +512,31 @@ function GalleryScene({
 
 				if (!texture || !material) return null;
 
-				const worldZ = plane.z - depthRange / 2;
+			const worldZ = plane.z - depthRange / 2;
+			const currentImage = normalizedImages[plane.imageIndex];
 
-				// Calculate scale to maintain aspect ratio
-				const aspect = texture.image
-					? texture.image.width / texture.image.height
-					: 1;
-				const scale: [number, number, number] =
-					aspect > 1 ? [2 * aspect, 2, 1] : [2, 2 / aspect, 1];
+			// Calculate scale to maintain aspect ratio
+			const aspect = texture.image
+				? texture.image.width / texture.image.height
+				: 1;
+			const scale: [number, number, number] =
+				aspect > 1 ? [2 * aspect, 2, 1] : [2, 2 / aspect, 1];
 
-				return (
-					<ImagePlane
-						key={plane.index}
-						texture={texture}
-						position={[plane.x, plane.y, worldZ]} // Position planes relative to camera center
-						scale={scale}
-						material={material}
-					/>
-				);
+			return (
+				<ImagePlane
+					key={plane.index}
+					texture={texture}
+					position={[plane.x, plane.y, worldZ]} // Position planes relative to camera center
+					scale={scale}
+					material={material}
+					onClick={currentImage?.id && onImageClick ? () => onImageClick(currentImage.id!) : undefined}
+					onHover={currentImage?.id && onImageHover ? (e) => {
+						const { x, y } = e.uv;
+						onImageHover(currentImage.id!, { x: e.clientX, y: e.clientY });
+					} : undefined}
+					onHoverEnd={onImageHover ? () => onImageHover(null) : undefined}
+				/>
+			);
 			})}
 		</>
 	);
@@ -544,6 +584,8 @@ export default function InfiniteGallery({
 		blurOut: { start: 0.4, end: 0.43 },
 		maxBlur: 8.0,
 	},
+	onImageClick,
+	onImageHover,
 }: InfiniteGalleryProps) {
 	const [webglSupported, setWebglSupported] = useState(true);
 
@@ -579,6 +621,8 @@ export default function InfiniteGallery({
 					images={images}
 					fadeSettings={fadeSettings}
 					blurSettings={blurSettings}
+					onImageClick={onImageClick}
+					onImageHover={onImageHover}
 				/>
 			</Canvas>
 		</div>
