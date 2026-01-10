@@ -299,11 +299,11 @@ function GalleryScene({
 			// Reverse the order: start from high z and go down
 			const z = depthRange - (zSpacing * i);
 			return {
-				index: i,
+			index: i,
 				z: z,
 				imageIndex: imageIndex,
-				x: spatialPositions[i]?.x ?? 0, // Use spatial positions for x
-				y: spatialPositions[i]?.y ?? 0, // Use spatial positions for y
+			x: spatialPositions[i]?.x ?? 0, // Use spatial positions for x
+			y: spatialPositions[i]?.y ?? 0, // Use spatial positions for y
 			};
 		})
 	);
@@ -316,11 +316,11 @@ function GalleryScene({
 			// Reverse the order: start from high z and go down
 			const z = depthRange - (zSpacing * i);
 			return {
-				index: i,
+			index: i,
 				z: z,
 				imageIndex: imageIndex,
-				x: spatialPositions[i]?.x ?? 0,
-				y: spatialPositions[i]?.y ?? 0,
+			x: spatialPositions[i]?.x ?? 0,
+			y: spatialPositions[i]?.y ?? 0,
 			};
 		});
 	}, [depthRange, spatialPositions, totalImages, visibleCount]);
